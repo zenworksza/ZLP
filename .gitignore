@@ -1,6 +1,7 @@
-# Documentation files
+# Documentation and Claude files
 *.md
 *.txt
+.claude/
 
 # Python
 authority/venv/
