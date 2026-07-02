@@ -1,49 +1,71 @@
-version: '3.9'
-
 services:
+
+  # ─── Reverse proxy ────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "0.0.0.0:80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf.template:ro
+    environment:
+      AUTHORITY_DOMAIN: ${AUTHORITY_DOMAIN:-license.yourdomain.com}
+      DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN:-dashboard.yourdomain.com}
+      PACKAGES_DOMAIN:  ${PACKAGES_DOMAIN:-packages.yourdomain.com}
+      NPM_DOMAIN:       ${NPM_DOMAIN:-npm.yourdomain.com}
+    command:
+      - /bin/sh
+      - -c
+      - "envsubst '$$AUTHORITY_DOMAIN $$DASHBOARD_DOMAIN $$PACKAGES_DOMAIN $$NPM_DOMAIN' < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    depends_on:
+      - license-authority
+      - dashboard
+      - satis
+      - verdaccio
+
+  # ─── License Authority ────────────────────────────────────────────────────
   license-authority:
     build:
       context: ../authority
       dockerfile: Dockerfile
     image: zenplatform/zlp-authority:latest
     restart: always
-    ports:
-      - "0.0.0.0:7000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://zlp:${POSTGRES_PASSWORD}@postgres:5432/zlp
+      DATABASE_URL:         postgresql+asyncpg://zlp:${POSTGRES_PASSWORD}@postgres:5432/zlp
       JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
       HMAC_ROTATION_SECRET: ${HMAC_ROTATION_SECRET}
-      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-billing@yourdomain.com}
-      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Zen License Platform}
-      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-ZAR}
-      PAYFAST_MERCHANT_ID: ${PAYFAST_MERCHANT_ID:-}
+      DASHBOARD_TOKEN:      ${DASHBOARD_TOKEN}
+      CORS_ORIGINS:         ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      SMTP_HOST:            ${SMTP_HOST:-}
+      SMTP_PORT:            ${SMTP_PORT:-587}
+      SMTP_USER:            ${SMTP_USER:-}
+      SMTP_PASSWORD:        ${SMTP_PASSWORD:-}
+      SMTP_FROM:            ${SMTP_FROM:-billing@yourdomain.com}
+      SMTP_FROM_NAME:       ${SMTP_FROM_NAME:-Zen License Platform}
+      DEFAULT_CURRENCY:     ${DEFAULT_CURRENCY:-ZAR}
+      PAYFAST_MERCHANT_ID:  ${PAYFAST_MERCHANT_ID:-}
       PAYFAST_MERCHANT_KEY: ${PAYFAST_MERCHANT_KEY:-}
-      PAYFAST_PASSPHRASE: ${PAYFAST_PASSPHRASE:-}
-      PAYFAST_SANDBOX: ${PAYFAST_SANDBOX:-false}
-      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYFAST_PASSPHRASE:   ${PAYFAST_PASSPHRASE:-}
+      PAYFAST_SANDBOX:      ${PAYFAST_SANDBOX:-false}
+      PAYPAL_CLIENT_ID:     ${PAYPAL_CLIENT_ID:-}
       PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
-      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
-      PAYPAL_SANDBOX: ${PAYPAL_SANDBOX:-false}
+      PAYPAL_WEBHOOK_ID:    ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_SANDBOX:       ${PAYPAL_SANDBOX:-false}
     secrets:
       - jwt_private.pem
     depends_on:
       postgres:
         condition: service_healthy
 
+  # ─── PostgreSQL ───────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     restart: always
     ports:
       - "0.0.0.0:7100:5432"
     environment:
-      POSTGRES_DB: zlp
-      POSTGRES_USER: zlp
+      POSTGRES_DB:       zlp
+      POSTGRES_USER:     zlp
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -53,15 +75,30 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── npm registry (Verdaccio) ─────────────────────────────────────────────
+  verdaccio-init:
+    image: alpine:3
+    volumes:
+      - verdaccio-storage:/verdaccio/storage
+    environment:
+      VERDACCIO_ADMIN_PASSWORD: ${VERDACCIO_ADMIN_PASSWORD:-changeme}
+    command:
+      - /bin/sh
+      - -c
+      - "[ -f /verdaccio/storage/htpasswd ] || (apk add --no-cache apache2-utils -q && htpasswd -Bbc /verdaccio/storage/htpasswd admin \"$$VERDACCIO_ADMIN_PASSWORD\")"
+    restart: "no"
+
   verdaccio:
     image: verdaccio/verdaccio:5
     restart: always
-    ports:
-      - "0.0.0.0:7200:4873"
     volumes:
       - verdaccio-storage:/verdaccio/storage
       - ./verdaccio.yaml:/verdaccio/conf/config.yaml:ro
+    depends_on:
+      verdaccio-init:
+        condition: service_completed_successfully
 
+  # ─── PHP registry (Satis) ─────────────────────────────────────────────────
   satis-builder:
     image: composer/satis:latest
     volumes:
@@ -74,23 +111,21 @@ services:
   satis:
     image: nginx:alpine
     restart: always
-    ports:
-      - "0.0.0.0:7400:80"
     volumes:
       - satis-output:/usr/share/nginx/html:ro
     depends_on:
-      - satis-builder
+      satis-builder:
+        condition: service_completed_successfully
 
+  # ─── Vendor dashboard ─────────────────────────────────────────────────────
   dashboard:
     build:
       context: ../dashboard/frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ""
+        VITE_API_URL: ${VITE_API_URL:-}
     image: zenplatform/zlp-dashboard:latest
     restart: always
-    ports:
-      - "0.0.0.0:7300:80"
 
 secrets:
   jwt_private.pem:

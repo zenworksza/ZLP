@@ -1,7 +1,7 @@
 storage: /verdaccio/storage
 auth:
   htpasswd:
-    file: /verdaccio/conf/htpasswd
+    file: /verdaccio/storage/htpasswd
     max_users: -1
 
 uplinks:
