@@ -1,3 +1,7 @@
+# Documentation files
+*.md
+*.txt
+
 # Python
 authority/venv/
 __pycache__/
