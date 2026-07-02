@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, status, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
 from jose import jwt
 import logging
 
@@ -147,7 +148,7 @@ async def heartbeat(
     install = result.scalar_one_or_none()
 
     # Look up license key
-    stmt = select(LicenseKey).where(LicenseKey.id == install.key_id)
+    stmt = select(LicenseKey).options(selectinload(LicenseKey.product)).where(LicenseKey.id == install.key_id)
     result = await db.execute(stmt)
     license_key = result.scalar_one_or_none()
 

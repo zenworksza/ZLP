@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from jose import jwt, JWTError
 import logging
 
@@ -131,7 +132,7 @@ async def activate_license(
         )
 
     # Validate license key exists and is active
-    stmt = select(LicenseKey).where(LicenseKey.key == request.license_key)
+    stmt = select(LicenseKey).options(selectinload(LicenseKey.product)).where(LicenseKey.key == request.license_key)
     result = await db.execute(stmt)
     license_key = result.scalar_one_or_none()
 
