@@ -1,11 +1,13 @@
 """ZLP License Authority - FastAPI application"""
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+from alembic.config import Config
+from alembic import command as alembic_command
 
-from .models import Base
 from .database import engine
 from .routers import health, activate, heartbeat, revoke, status, dashboard, billing
 from .scheduler import start_scheduler, stop_scheduler
@@ -13,11 +15,16 @@ from .scheduler import start_scheduler, stop_scheduler
 logger = logging.getLogger(__name__)
 
 
+def _run_alembic_upgrade() -> None:
+    cfg = Config("alembic.ini")
+    alembic_command.upgrade(cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting ZLP License Authority")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await asyncio.to_thread(_run_alembic_upgrade)
+    logger.info("Database migrations applied")
     start_scheduler()
     yield
     stop_scheduler()
