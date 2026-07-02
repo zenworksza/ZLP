@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+apk add --no-cache openssl >/dev/null 2>&1
+
 # Generate a self-signed placeholder cert for each domain if the real one
 # doesn't exist yet. This lets nginx start before certbot has run.
 for domain in "$AUTHORITY_DOMAIN" "$DASHBOARD_DOMAIN" "$PACKAGES_DOMAIN" "$NPM_DOMAIN"; do
