@@ -14,6 +14,14 @@ services:
       JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
       HMAC_ROTATION_SECRET: ${HMAC_ROTATION_SECRET}
       DASHBOARD_TOKEN: ${DASHBOARD_TOKEN}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-billing@yourdomain.com}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Zen License Platform}
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-ZAR}
       PAYFAST_MERCHANT_ID: ${PAYFAST_MERCHANT_ID:-}
       PAYFAST_MERCHANT_KEY: ${PAYFAST_MERCHANT_KEY:-}
       PAYFAST_PASSPHRASE: ${PAYFAST_PASSPHRASE:-}
@@ -54,16 +62,24 @@ services:
       - verdaccio-storage:/verdaccio/storage
       - ./verdaccio.yaml:/verdaccio/conf/config.yaml:ro
 
-  satis:
+  satis-builder:
     image: composer/satis:latest
-    restart: always
-    ports:
-      - "0.0.0.0:7400:80"
     volumes:
       - ./satis/satis.json:/var/www/satis.json:ro
       - satis-output:/var/www/output
       - ../sdk-php:/var/www/sdk-php:ro
     command: ["build", "/var/www/satis.json", "/var/www/output", "--no-interaction"]
+    restart: "no"
+
+  satis:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "0.0.0.0:7400:80"
+    volumes:
+      - satis-output:/usr/share/nginx/html:ro
+    depends_on:
+      - satis-builder
 
   dashboard:
     build:
