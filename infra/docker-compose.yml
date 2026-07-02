@@ -1,0 +1,86 @@
+version: '3.9'
+
+services:
+  license-authority:
+    build:
+      context: ../authority
+      dockerfile: Dockerfile
+    image: zenplatform/zlp-authority:latest
+    restart: always
+    ports:
+      - "0.0.0.0:7000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zlp:${POSTGRES_PASSWORD}@postgres:5432/zlp
+      JWT_PRIVATE_KEY_PATH: /run/secrets/jwt_private.pem
+      HMAC_ROTATION_SECRET: ${HMAC_ROTATION_SECRET}
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN}
+      PAYFAST_MERCHANT_ID: ${PAYFAST_MERCHANT_ID:-}
+      PAYFAST_MERCHANT_KEY: ${PAYFAST_MERCHANT_KEY:-}
+      PAYFAST_PASSPHRASE: ${PAYFAST_PASSPHRASE:-}
+      PAYFAST_SANDBOX: ${PAYFAST_SANDBOX:-false}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PAYPAL_SANDBOX: ${PAYPAL_SANDBOX:-false}
+    secrets:
+      - jwt_private.pem
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    ports:
+      - "0.0.0.0:7100:5432"
+    environment:
+      POSTGRES_DB: zlp
+      POSTGRES_USER: zlp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zlp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  verdaccio:
+    image: verdaccio/verdaccio:5
+    restart: always
+    ports:
+      - "0.0.0.0:7200:4873"
+    volumes:
+      - verdaccio-storage:/verdaccio/storage
+      - ./verdaccio.yaml:/verdaccio/conf/config.yaml:ro
+
+  satis:
+    image: composer/satis:latest
+    restart: always
+    ports:
+      - "0.0.0.0:7400:80"
+    volumes:
+      - ./satis/satis.json:/var/www/satis.json:ro
+      - satis-output:/var/www/output
+      - ../sdk-php:/var/www/sdk-php:ro
+    command: ["build", "/var/www/satis.json", "/var/www/output", "--no-interaction"]
+
+  dashboard:
+    build:
+      context: ../dashboard/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    image: zenplatform/zlp-dashboard:latest
+    restart: always
+    ports:
+      - "0.0.0.0:7300:80"
+
+secrets:
+  jwt_private.pem:
+    file: ./keys/zlp_private.pem
+
+volumes:
+  pgdata:
+  verdaccio-storage:
+  satis-output:

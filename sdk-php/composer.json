@@ -1,0 +1,34 @@
+{
+  "name": "zenplatform/zlf-php",
+  "description": "ZLP License Middleware for PHP",
+  "type": "library",
+  "license": "Proprietary",
+  "minimum-stability": "stable",
+  "require": {
+    "php": ">=8.1",
+    "firebase/php-jwt": "^6.0",
+    "guzzlehttp/guzzle": "^7.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "ZenPlatform\\ZLF\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "ZenPlatform\\ZLF\\Tests\\": "tests/"
+    }
+  },
+  "bin": [
+    "bin/zlp-agent"
+  ],
+  "repositories": [
+    {
+      "type": "composer",
+      "url": "https://packages.yourdomain.com"
+    }
+  ]
+}

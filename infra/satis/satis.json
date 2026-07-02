@@ -1,0 +1,16 @@
+{
+  "name": "zenplatform/packages",
+  "homepage": "https://packages.yourdomain.com",
+  "repositories": [
+    {
+      "type": "path",
+      "url": "/var/www/sdk-php"
+    }
+  ],
+  "require-all": true,
+  "archive": {
+    "directory": "dist",
+    "format": "zip",
+    "skip-dev": true
+  }
+}

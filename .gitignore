@@ -1,0 +1,24 @@
+# Python
+authority/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+
+# Test artefacts
+authority/test.db
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Secrets — never commit
+infra/.env
+infra/keys/zlp_private.pem
+
+# OS
+.DS_Store
+Thumbs.db

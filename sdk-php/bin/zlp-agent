@@ -1,0 +1,51 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * ZLP License Agent - CLI Entry Point
+ *
+ * Usage: php vendor/bin/zlp-agent heartbeat
+ *
+ * Add to crontab:
+ * */15 * * * * php /path/to/vendor/bin/zlp-agent heartbeat >> /var/log/zlp-agent.log 2>&1
+ */
+
+// Find and load autoloader
+$paths = [
+    __DIR__ . '/../../../autoload.php',           // Installed as vendor package
+    __DIR__ . '/../vendor/autoload.php',          // Standalone vendor
+    __DIR__ . '/../../vendor/autoload.php',       // Development
+];
+
+$autoloaderFound = false;
+foreach ($paths as $path) {
+    if (file_exists($path)) {
+        require_once $path;
+        $autoloaderFound = true;
+        break;
+    }
+}
+
+if (!$autoloaderFound) {
+    error_log("ZLP Agent: Cannot find Composer autoloader");
+    exit(1);
+}
+
+use ZenPlatform\ZLF\AgentDaemon;
+use ZenPlatform\ZLF\Activation;
+
+$command = $argv[1] ?? null;
+
+if ($command === 'heartbeat') {
+    $agent = new AgentDaemon(getenv('ZLP_PRODUCT') ?: 'zenmsp');
+    exit($agent->run());
+} elseif ($command === 'activate') {
+    Activation::run();
+    exit(0);
+} else {
+    fwrite(STDERR, "ZLP Agent: Unknown command: $command\n");
+    fwrite(STDERR, "Usage: php zlp-agent <command>\n");
+    fwrite(STDERR, "  heartbeat   Send a heartbeat to the license authority\n");
+    fwrite(STDERR, "  activate    Activate this install with the license authority\n");
+    exit(1);
+}

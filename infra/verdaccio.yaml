@@ -1,0 +1,28 @@
+storage: /verdaccio/storage
+auth:
+  htpasswd:
+    file: /verdaccio/conf/htpasswd
+    max_users: -1
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+packages:
+  '@zenplatform/*':
+    access: $authenticated
+    publish: $authenticated
+    unpublish: $authenticated
+    proxy: false
+
+  '**':
+    access: $authenticated
+    publish: $authenticated
+    proxy: npmjs
+
+web:
+  title: ZenPlatform Package Registry
+  enable: true
+
+logs:
+  - { type: stdout, format: pretty, level: warn }

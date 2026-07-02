@@ -1,0 +1,511 @@
+openapi: 3.1.0
+info:
+  title: ZLP License Authority API
+  description: |
+    Internal licensing infrastructure for self-hosted Zen products.
+
+    **Threat Model:** Hard block on server unreachable = same as invalid license.
+    No cached fallback. No grace period. See CLAUDE.md Section 2.
+
+    **State Machine:** SDK middleware enforces 5-state machine (PENDING, VALID, EXPIRED, INVALID, REVOKED).
+    All failures return HTTP 402 (Payment Required). See CLAUDE.md Section 3.3.
+  version: "1.0.0"
+  contact:
+    name: Zen Platform
+  license:
+    name: Internal/Confidential
+
+servers:
+  - url: https://license.yourdomain.com
+    description: Production License Authority
+  - url: http://localhost:8000
+    description: Local development
+
+tags:
+  - name: Activation
+    description: License activation and token issuance
+  - name: Heartbeat
+    description: Periodic license validation
+  - name: Management
+    description: Vendor-only license management
+  - name: Health
+    description: Service health checks
+
+paths:
+  /v1/activate:
+    post:
+      tags:
+        - Activation
+      summary: Activate a license on a new install
+      description: |
+        Called once per install when the product first starts.
+
+        Returns a signed RS256 JWT token (TTL 30 min), a machine-bound shared_secret for heartbeat HMAC,
+        and a registry_token for package manager access.
+
+        Validates:
+        - License key exists and is active (not expired, not revoked)
+        - Machine fingerprint matches (Section 5.3 domain/machine_id validation)
+
+        On success: Creates an `installs` row in the database.
+        On error: Returns 404 (key not found), 409 (domain mismatch), or 402 (expired/revoked).
+      operationId: activateLicense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateRequest'
+            examples:
+              standard:
+                summary: Standard activation
+                value:
+                  license_key: "ZLP-XXXX-XXXX-XXXX"
+                  install_id: "550e8400-e29b-41d4-a716-446655440000"
+                  domain: "app.customer.com"
+                  fingerprint: "abc123def456..."
+                  machine_id: "f3ba0318-6677-459e-a6eb-2d4ea3f1f2d1"
+                  product: "zenmsp"
+                  version: "2.1.0"
+      responses:
+        '200':
+          description: Activation successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivateResponse'
+              examples:
+                success:
+                  summary: Valid activation response
+                  value:
+                    shared_secret: "c2VjcmV0YmFzZTY0ZW5jb2RlZA=="
+                    registry_token: "npm_XXXXXXXXXXXXXXXXXXXXXXXX"
+                    token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '404':
+          description: License key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                error: "key_not_found"
+                message: "License key ZLP-XXXX-XXXX-XXXX does not exist"
+        '409':
+          description: Key already activated on different domain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                error: "domain_mismatch"
+                message: "Key already activated on different.domain.com"
+        '402':
+          description: License expired or revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                status: "error"
+                error: "license_invalid"
+                message: "License key is expired or revoked"
+
+  /v1/heartbeat:
+    post:
+      tags:
+        - Heartbeat
+      summary: Periodic license validation (every 15 min)
+      description: |
+        Called every 15 minutes by the install agent (cron job).
+
+        **Request signature:** HMAC-SHA256 over JSON payload, signed with shared_secret from activation.
+        Pass signature in `X-ZLF-Signature` header and timestamp in `X-ZLF-Timestamp`.
+        Reject requests > 300s old.
+
+        **Response:** Always HTTP 200 (not 5xx) for success or license issues.
+        The SDK reads the `status` field to determine license state.
+
+        **On valid license:** Returns renewed JWT (new TTL) + rotated shared_secret.
+        **On revoked/suspended:** Returns `status: revoked` with reason.
+        **On network error (5xx):** SDK retries 3× with backoff, then hard-blocks.
+      operationId: heartbeat
+      parameters:
+        - name: X-ZLF-Signature
+          in: header
+          required: true
+          description: HMAC-SHA256(JSON.stringify(request), shared_secret) as hex string
+          schema:
+            type: string
+        - name: X-ZLF-Timestamp
+          in: header
+          required: true
+          description: Unix timestamp of request. Reject if > 300s old.
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+            examples:
+              standard:
+                summary: Standard heartbeat
+                value:
+                  install_id: "550e8400-e29b-41d4-a716-446655440000"
+                  license_key: "ZLP-XXXX-XXXX-XXXX"
+                  product: "zenmsp"
+                  version: "2.1.0"
+                  domain: "app.customer.com"
+                  fingerprint: "abc123def456..."
+                  timestamp: 1718000000
+                  nonce: "a3f9c821"
+      responses:
+        '200':
+          description: Heartbeat processed successfully
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/HeartbeatResponseValid'
+                  - $ref: '#/components/schemas/HeartbeatResponseRevoked'
+              examples:
+                valid:
+                  summary: License is valid
+                  value:
+                    status: "valid"
+                    token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    shared_secret: "c2VjcmV0YmFzZTY0ZW5jb2RlZA=="
+                revoked:
+                  summary: License is revoked
+                  value:
+                    status: "revoked"
+                    reason: "license_suspended"
+        '400':
+          description: Invalid request (bad signature, missing headers, timestamp too old)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '5xx':
+          description: Server error (SDK will retry with backoff, then hard-block)
+
+  /v1/revoke/{install_id}:
+    post:
+      tags:
+        - Management
+      summary: Revoke a specific install
+      description: |
+        Vendor-only endpoint. Hard-blocks a specific installation.
+
+        Takes effect on next heartbeat (max 30 min delay).
+
+        **Security:** Requires vendor authentication (JWT bearer token in Authorization header).
+      operationId: revokeInstall
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: install_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Install revoked successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeResponse'
+              example:
+                revoked: true
+                install_id: "550e8400-e29b-41d4-a716-446655440000"
+        '401':
+          description: Unauthorized (invalid or missing vendor token)
+        '404':
+          description: Install not found
+
+  /v1/status/{license_key}:
+    get:
+      tags:
+        - Management
+      summary: Get all installs for a license key
+      description: |
+        Vendor-only endpoint. Returns current status of all activations for a given license key.
+
+        Used by vendor dashboard to monitor customer installs.
+
+        **Security:** Requires vendor authentication (JWT bearer token in Authorization header).
+      operationId: getStatus
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: license_key
+          in: path
+          required: true
+          schema:
+            type: string
+            description: License key in format ZLP-XXXX-XXXX-XXXX
+      responses:
+        '200':
+          description: License status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              examples:
+                multipleInstalls:
+                  summary: License with multiple active installs
+                  value:
+                    license_key: "ZLP-XXXX-XXXX-XXXX"
+                    plan: "professional"
+                    seats: 10
+                    status: "active"
+                    expires_at: "2026-12-31T23:59:59Z"
+                    installs:
+                      - install_id: "550e8400-e29b-41d4-a716-446655440000"
+                        domain: "app.customer1.com"
+                        status: "active"
+                        first_seen: "2026-01-15T10:00:00Z"
+                        last_heartbeat: "2026-06-05T14:30:00Z"
+                      - install_id: "660e8400-e29b-41d4-a716-446655440001"
+                        domain: "staging.customer1.com"
+                        status: "active"
+                        first_seen: "2026-02-10T09:30:00Z"
+                        last_heartbeat: "2026-06-05T14:15:00Z"
+        '401':
+          description: Unauthorized
+        '404':
+          description: License key not found
+
+  /v1/health:
+    get:
+      tags:
+        - Health
+      summary: Health check endpoint
+      description: |
+        Public endpoint used by ALB health checks.
+        Returns 200 if service is ready.
+      operationId: health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+components:
+  schemas:
+    # Requests
+    ActivateRequest:
+      type: object
+      required:
+        - license_key
+        - install_id
+        - domain
+        - fingerprint
+        - machine_id
+        - product
+        - version
+      properties:
+        license_key:
+          type: string
+          pattern: '^ZLP-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$'
+          description: License key in format ZLP-XXXX-XXXX-XXXX
+        install_id:
+          type: string
+          format: uuid
+          description: Unique identifier for this installation (generated by SDK)
+        domain:
+          type: string
+          format: hostname
+          description: Domain where the product is running (e.g., app.customer.com)
+        fingerprint:
+          type: string
+          description: HMAC-SHA256 composite of install_id, domain, machine_id per Section 5.1
+        machine_id:
+          type: string
+          description: Machine identifier from /etc/machine-id or UUID written to storage
+        product:
+          type: string
+          enum: [zenmsp, zensslzensslzensslzenssl, imapsync, imap_sync]
+          description: Product slug
+        version:
+          type: string
+          pattern: '^\d+\.\d+\.\d+$'
+          description: Product version (semver)
+
+    HeartbeatRequest:
+      type: object
+      required:
+        - install_id
+        - license_key
+        - product
+        - version
+        - domain
+        - fingerprint
+        - timestamp
+        - nonce
+      properties:
+        install_id:
+          type: string
+          format: uuid
+        license_key:
+          type: string
+        product:
+          type: string
+        version:
+          type: string
+        domain:
+          type: string
+        fingerprint:
+          type: string
+        timestamp:
+          type: integer
+          description: Unix timestamp when request was created
+        nonce:
+          type: string
+          description: Random hex string (8 chars) to prevent replay attacks
+
+    # Responses
+    ActivateResponse:
+      type: object
+      required:
+        - shared_secret
+        - registry_token
+        - token
+      properties:
+        shared_secret:
+          type: string
+          format: byte
+          description: Base64-encoded shared secret for heartbeat HMAC signing
+        registry_token:
+          type: string
+          description: Bearer token for package registry access (Satis/Verdaccio)
+        token:
+          type: string
+          description: Signed RS256 JWT token (TTL 30 min)
+
+    HeartbeatResponseValid:
+      type: object
+      required:
+        - status
+        - token
+        - shared_secret
+      properties:
+        status:
+          type: string
+          enum: [valid]
+        token:
+          type: string
+          description: Renewed RS256 JWT token (new TTL)
+        shared_secret:
+          type: string
+          format: byte
+          description: Rotated shared secret for next heartbeat
+
+    HeartbeatResponseRevoked:
+      type: object
+      required:
+        - status
+        - reason
+      properties:
+        status:
+          type: string
+          enum: [revoked]
+        reason:
+          type: string
+          enum:
+            - license_suspended
+            - license_expired
+            - fingerprint_mismatch
+            - payment_overdue
+            - key_revoked
+          description: Reason license is no longer valid
+
+    RevokeResponse:
+      type: object
+      required:
+        - revoked
+        - install_id
+      properties:
+        revoked:
+          type: boolean
+          example: true
+        install_id:
+          type: string
+          format: uuid
+
+    StatusResponse:
+      type: object
+      required:
+        - license_key
+        - plan
+        - status
+        - installs
+      properties:
+        license_key:
+          type: string
+        plan:
+          type: string
+          enum: [starter, professional, enterprise]
+        seats:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [active, suspended, revoked]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        installs:
+          type: array
+          items:
+            type: object
+            properties:
+              install_id:
+                type: string
+                format: uuid
+              domain:
+                type: string
+              status:
+                type: string
+                enum: [active, blocked, anomalous]
+              first_seen:
+                type: string
+                format: date-time
+              last_heartbeat:
+                type: string
+                format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - error
+      properties:
+        status:
+          type: string
+          enum: [error]
+        error:
+          type: string
+          description: Error code (key_not_found, domain_mismatch, license_invalid, etc)
+        message:
+          type: string
+          description: Human-readable error message
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Vendor JWT token (vendor-only endpoints)

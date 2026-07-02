@@ -1,0 +1,52 @@
+{
+  "name": "@zenplatform/zlf-node",
+  "version": "1.0.0",
+  "description": "ZLP License Middleware for Node.js / Next.js",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./middleware": {
+      "import": "./dist/middleware.js",
+      "types": "./dist/middleware.d.ts"
+    }
+  },
+  "bin": {
+    "zlp": "dist/activation.js"
+  },
+  "files": [
+    "dist",
+    "keys",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jose": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "next": "^14.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "next": "^14.0.0"
+  },
+  "peerDependenciesOptional": {
+    "next": true
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "registry": "https://npm.yourdomain.com",
+    "@zenplatform:registry": "https://npm.yourdomain.com"
+  }
+}
