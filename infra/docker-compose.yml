@@ -6,22 +6,32 @@ services:
     restart: always
     ports:
       - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf.template:ro
+      - ./nginx-start.sh:/nginx-start.sh:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
     environment:
       AUTHORITY_DOMAIN: ${AUTHORITY_DOMAIN:-license.yourdomain.com}
       DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN:-dashboard.yourdomain.com}
       PACKAGES_DOMAIN:  ${PACKAGES_DOMAIN:-packages.yourdomain.com}
       NPM_DOMAIN:       ${NPM_DOMAIN:-npm.yourdomain.com}
-    command:
-      - /bin/sh
-      - -c
-      - "envsubst '$$AUTHORITY_DOMAIN $$DASHBOARD_DOMAIN $$PACKAGES_DOMAIN $$NPM_DOMAIN' < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    command: ["/bin/sh", "/nginx-start.sh"]
     depends_on:
       - license-authority
       - dashboard
       - satis
       - verdaccio
+
+  # ─── TLS certificate renewal ──────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot
+    restart: always
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done"
 
   # ─── License Authority ────────────────────────────────────────────────────
   license-authority:
@@ -135,3 +145,5 @@ volumes:
   pgdata:
   verdaccio-storage:
   satis-output:
+  letsencrypt:
+  certbot-webroot:
