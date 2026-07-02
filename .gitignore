@@ -1,6 +1,7 @@
 # Documentation and Claude files
 *.md
 *.txt
+!**/requirements*.txt
 .claude/
 
 # Python
