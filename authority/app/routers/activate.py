@@ -26,7 +26,7 @@ router = APIRouter()
 JWT_PRIVATE_KEY_PATH = os.getenv("JWT_PRIVATE_KEY_PATH", "/home/mdb/workspaces/ZLP/infra/keys/zlp_private.pem")
 JWT_ALGORITHM = "RS256"
 JWT_ISSUER = "zlp.yourdomain.com"
-JWT_TTL_SECONDS = 1800  # 30 minutes
+JWT_TTL_SECONDS = 600  # 10 minutes — shrinks the offline window a copied token.cache stays useful without a live heartbeat
 REGISTRY_TOKEN_PREFIX = "npm_"
 
 
