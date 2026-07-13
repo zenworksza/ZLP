@@ -188,6 +188,13 @@ async def activate_license(
     # Create or update install record
     if existing_install:
         install = existing_install
+        # Reactivation must sync install_id (and fingerprint/machine_id, which
+        # are derived from install_id) to the new values from this request —
+        # otherwise the JWT below embeds an install_id this row was never
+        # updated to, and every future heartbeat 404s with install_not_found.
+        install.install_id = request.install_id
+        install.fingerprint = request.fingerprint
+        install.machine_id = request.machine_id
         install.shared_secret_encrypted = encrypted_secret
         install.shared_secret_nonce = nonce_hex
         install.registered_ip = client_ip
